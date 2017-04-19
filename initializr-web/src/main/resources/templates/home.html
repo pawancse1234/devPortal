@@ -35,7 +35,7 @@
                     </h2>
                     
                 </div>
-                <h3>Require Git Repo?<input type="checkbox" id="initGit" name="initGit" tabindex="2"></h3>
+                <h3>Require Git Repo?<input type="checkbox" id="gitRepo" name="gitRepo" tabindex="2"></h3>
             </div>
 
             <input id="baseDir" name="baseDir" type="hidden" value="{{artifactId.content}}">
@@ -100,9 +100,8 @@
                 </div>
                   <!-- begin custom stuff -->
                     <div class="form-group">
-                        <label for="archetypes" class="control-label">Select a Starter Archetype</label>
+                        <label for="archetypes" class="control-label">       Select a Starter Archetype</label>
                         <select id="archetypes">
-                            <option value="NONE">Ad hoc</option>
                             <option value="REST">Microservice (REST)</option>
                             <option value="FOO">Foo</option>
                             <option value="BAR">Bar</option>

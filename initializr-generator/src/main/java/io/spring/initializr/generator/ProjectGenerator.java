@@ -244,7 +244,7 @@ public class ProjectGenerator {
 			new File(dir, "src/main/resources/static").mkdirs();
 		}
 
-		if (request.getGitRepo() == true) {
+		if (request.getGitRepo()) {
 			write(new File(dir, ".gitignore"), "gitignore", model);
 			try {
 				gitSetup(dir, request);
@@ -262,10 +262,10 @@ public class ProjectGenerator {
 		Git git = null;
 		try {
 			// use ~/.github properties file
-			Properties props = new Properties();
+			/*Properties props = new Properties();
 			File propFile = new File(System.getProperty("user.home"), ".github");
 			props.load(new FileReader(propFile));
-
+*/
 			// git init, add and commit
 			git = Git.init().setDirectory(dir).call();
 			git.add().addFilepattern(".").call();
