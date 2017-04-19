@@ -211,6 +211,20 @@ initializr:
             - versionRange: "[1.2.0.RELEASE,1.4.0.M1)"
               version: 1.16.6
           starter: false
+    - name: Custom
+      content:
+        - name: Jasypt
+          id: jasypt
+          description: Provides Jasypt encryption support for property sources
+          version: 1.6
+          groupId: com.github.ulisesbocchio
+          artifactId: jasypt-spring-boot-starter
+        - name: User Management
+          id: user
+          description: User REST API
+          version: 1.0
+          groupId: com.xavient
+          artifactId: user-spring-boot-starter
     - name: Web
       content:
         - name: Web

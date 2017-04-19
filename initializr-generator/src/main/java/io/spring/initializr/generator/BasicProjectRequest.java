@@ -41,6 +41,7 @@ public class BasicProjectRequest {
 	private String language;
 	private String packageName;
 	private String javaVersion;
+	private Boolean gitRepo;
 
 	// The base directory to create in the archive - no baseDir by default
 	private String baseDir;
@@ -163,6 +164,14 @@ public class BasicProjectRequest {
 
 	public void setBaseDir(String baseDir) {
 		this.baseDir = baseDir;
+	}
+
+	public Boolean getGitRepo() {
+		return gitRepo;
+	}
+
+	public void setGitRepo(Boolean gitRepo) {
+		this.gitRepo = gitRepo;
 	}
 
 }

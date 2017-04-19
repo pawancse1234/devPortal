@@ -19,6 +19,7 @@ package io.spring.initializr.generator;
 import java.beans.PropertyDescriptor;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.Charset;
@@ -28,7 +29,21 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.stream.Collectors;
+
+import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.lib.ConfigConstants;
+import org.eclipse.jgit.lib.StoredConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.BeanWrapperImpl;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.util.Assert;
+import org.springframework.util.FileSystemUtils;
+import org.springframework.util.StreamUtils;
 
 import io.spring.initializr.InitializrException;
 import io.spring.initializr.metadata.BillOfMaterials;
@@ -39,16 +54,6 @@ import io.spring.initializr.metadata.InitializrMetadataProvider;
 import io.spring.initializr.metadata.MetadataElement;
 import io.spring.initializr.util.TemplateRenderer;
 import io.spring.initializr.util.Version;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import org.springframework.beans.BeanWrapperImpl;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.util.Assert;
-import org.springframework.util.FileSystemUtils;
-import org.springframework.util.StreamUtils;
 
 /**
  * Generate a project based on the configured metadata.
@@ -140,14 +145,13 @@ public class ProjectGenerator {
 		try {
 			Map<String, Object> model = resolveModel(request);
 			if (!isMavenBuild(request)) {
-				throw new InvalidProjectRequestException("Could not generate Maven pom, "
-						+ "invalid project type " + request.getType());
+				throw new InvalidProjectRequestException(
+						"Could not generate Maven pom, " + "invalid project type " + request.getType());
 			}
 			byte[] content = doGenerateMavenPom(model);
 			publishProjectGeneratedEvent(request);
 			return content;
-		}
-		catch (InitializrException ex) {
+		} catch (InitializrException ex) {
 			publishProjectFailedEvent(request, ex);
 			throw ex;
 		}
@@ -161,28 +165,25 @@ public class ProjectGenerator {
 			Map<String, Object> model = resolveModel(request);
 			if (!isGradleBuild(request)) {
 				throw new InvalidProjectRequestException(
-						"Could not generate Gradle build, " + "invalid project type "
-								+ request.getType());
+						"Could not generate Gradle build, " + "invalid project type " + request.getType());
 			}
 			byte[] content = doGenerateGradleBuild(model);
 			publishProjectGeneratedEvent(request);
 			return content;
-		}
-		catch (InitializrException ex) {
+		} catch (InitializrException ex) {
 			publishProjectFailedEvent(request, ex);
 			throw ex;
 		}
 	}
 
 	/**
-	 * Generate a project structure for the specified {@link ProjectRequest}. Returns a
-	 * directory containing the project.
+	 * Generate a project structure for the specified {@link ProjectRequest}.
+	 * Returns a directory containing the project.
 	 */
 	public File generateProjectStructure(ProjectRequest request) {
 		try {
 			return doGenerateProjectStructure(request);
-		}
-		catch (InitializrException ex) {
+		} catch (InitializrException ex) {
 			publishProjectFailedEvent(request, ex);
 			throw ex;
 		}
@@ -194,8 +195,7 @@ public class ProjectGenerator {
 		File rootDir;
 		try {
 			rootDir = File.createTempFile("tmp", "", getTemporaryDirectory());
-		}
-		catch (IOException e) {
+		} catch (IOException e) {
 			throw new IllegalStateException("Cannot create temp dir", e);
 		}
 		addTempFile(rootDir.getName(), rootDir);
@@ -208,8 +208,7 @@ public class ProjectGenerator {
 			String gradle = new String(doGenerateGradleBuild(model));
 			writeText(new File(dir, "build.gradle"), gradle);
 			writeGradleWrapper(dir, Version.safeParse(request.getBootVersion()));
-		}
-		else {
+		} else {
 			String pom = new String(doGenerateMavenPom(model));
 			writeText(new File(dir, "pom.xml"), pom);
 			writeMavenWrapper(dir);
@@ -221,24 +220,20 @@ public class ProjectGenerator {
 		String language = request.getLanguage();
 
 		String codeLocation = language;
-		File src = new File(new File(dir, "src/main/" + codeLocation),
-				request.getPackageName().replace(".", "/"));
+		File src = new File(new File(dir, "src/main/" + codeLocation), request.getPackageName().replace(".", "/"));
 		src.mkdirs();
 		String extension = ("kotlin".equals(language) ? "kt" : language);
-		write(new File(src, applicationName + "." + extension),
-				"Application." + extension, model);
+		write(new File(src, applicationName + "." + extension), "Application." + extension, model);
 
 		if ("war".equals(request.getPackaging())) {
 			String fileName = "ServletInitializer." + extension;
 			write(new File(src, fileName), fileName, model);
 		}
 
-		File test = new File(new File(dir, "src/test/" + codeLocation),
-				request.getPackageName().replace(".", "/"));
+		File test = new File(new File(dir, "src/test/" + codeLocation), request.getPackageName().replace(".", "/"));
 		test.mkdirs();
 		setupTestModel(request, model);
-		write(new File(test, applicationName + "Tests." + extension),
-				"ApplicationTests." + extension, model);
+		write(new File(test, applicationName + "Tests." + extension), "ApplicationTests." + extension, model);
 
 		File resources = new File(dir, "src/main/resources");
 		resources.mkdirs();
@@ -248,14 +243,52 @@ public class ProjectGenerator {
 			new File(dir, "src/main/resources/templates").mkdirs();
 			new File(dir, "src/main/resources/static").mkdirs();
 		}
+
+		if (request.getGitRepo() == true) {
+			write(new File(dir, ".gitignore"), "gitignore", model);
+			try {
+				gitSetup(dir, request);
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+		}
+
 		publishProjectGeneratedEvent(request);
 		return rootDir;
 
 	}
 
+	void gitSetup(File dir, ProjectRequest request) throws Exception {
+		Git git = null;
+		try {
+			// use ~/.github properties file
+			Properties props = new Properties();
+			File propFile = new File(System.getProperty("user.home"), ".github");
+			props.load(new FileReader(propFile));
+
+			// git init, add and commit
+			git = Git.init().setDirectory(dir).call();
+			git.add().addFilepattern(".").call();
+			git.commit().setAll(true).setMessage("Initial commit by Initializr").call();
+
+			// git remote and branch config
+			StoredConfig config = git.getRepository().getConfig();
+			config.setString(ConfigConstants.CONFIG_REMOTE_SECTION, "origin", "url",
+					"${props.url}/${request.name}.git");
+			config.setString(ConfigConstants.CONFIG_BRANCH_SECTION, "master", "remote", "origin");
+			config.setString(ConfigConstants.CONFIG_BRANCH_SECTION, "master", "merge", "refs/heads/master");
+			config.save();
+		} catch (Exception ex) {
+			publishProjectFailedEvent(request, ex);
+			throw ex;
+		} finally {
+			git.close();
+		}
+	}
+
 	/**
-	 * Create a distribution file for the specified project structure directory and
-	 * extension
+	 * Create a distribution file for the specified project structure directory
+	 * and extension
 	 */
 	public File createDistributionFile(File dir, String extension) {
 		File download = new File(getTemporaryDirectory(), dir.getName() + extension);
@@ -273,6 +306,7 @@ public class ProjectGenerator {
 
 	/**
 	 * Clean all the temporary files that are related to this root directory.
+	 * 
 	 * @see #createDistributionFile
 	 */
 	public void cleanTempFiles(File dir) {
@@ -281,8 +315,7 @@ public class ProjectGenerator {
 			tempFiles.forEach((File file) -> {
 				if (file.isDirectory()) {
 					FileSystemUtils.deleteRecursively(file);
-				}
-				else if (file.exists()) {
+				} else if (file.exists()) {
 					file.delete();
 				}
 			});
@@ -300,26 +333,31 @@ public class ProjectGenerator {
 	}
 
 	/**
-	 * Generate a {@code .gitignore} file for the specified {@link ProjectRequest}
-	 * @param dir the root directory of the project
-	 * @param request the request to handle
+	 * Generate a {@code .gitignore} file for the specified
+	 * {@link ProjectRequest}
+	 * 
+	 * @param dir
+	 *            the root directory of the project
+	 * @param request
+	 *            the request to handle
 	 */
 	protected void generateGitIgnore(File dir, ProjectRequest request) {
 		Map<String, Object> model = new LinkedHashMap<>();
 		if (isMavenBuild(request)) {
 			model.put("build", "maven");
 			model.put("mavenBuild", true);
-		}
-		else {
+		} else {
 			model.put("build", "gradle");
 		}
 		write(new File(dir, ".gitignore"), "gitignore.tmpl", model);
 	}
 
 	/**
-	 * Resolve the specified {@link ProjectRequest} and return the model to use to
-	 * generate the project
-	 * @param originalRequest the request to handle
+	 * Resolve the specified {@link ProjectRequest} and return the model to use
+	 * to generate the project
+	 * 
+	 * @param originalRequest
+	 *            the request to handle
 	 * @return a model for that request
 	 */
 	protected Map<String, Object> resolveModel(ProjectRequest originalRequest) {
@@ -331,10 +369,8 @@ public class ProjectGenerator {
 
 		// request resolved so we can log what has been requested
 		List<Dependency> dependencies = request.getResolvedDependencies();
-		List<String> dependencyIds = dependencies.stream().map(Dependency::getId)
-				.collect(Collectors.toList());
-		log.info("Processing request{type=" + request.getType() + ", dependencies="
-				+ dependencyIds);
+		List<String> dependencyIds = dependencies.stream().map(Dependency::getId).collect(Collectors.toList());
+		log.info("Processing request{type=" + request.getType() + ", dependencies=" + dependencyIds);
 
 		if (isWar(request)) {
 			model.put("war", true);
@@ -344,10 +380,9 @@ public class ProjectGenerator {
 			model.put("mavenBuild", true);
 			ParentPom parentPom = metadata.getConfiguration().getEnv().getMaven()
 					.resolveParentPom(request.getBootVersion());
-			if (parentPom.isIncludeSpringBootBom()
-					&& !request.getBoms().containsKey("spring-boot")) {
-				request.getBoms().put("spring-boot", metadata.createSpringBootBom(
-						request.getBootVersion(), "spring-boot.version"));
+			if (parentPom.isIncludeSpringBootBom() && !request.getBoms().containsKey("spring-boot")) {
+				request.getBoms().put("spring-boot",
+						metadata.createSpringBootBom(request.getBootVersion(), "spring-boot.version"));
 			}
 
 			model.put("mavenParentGroupId", parentPom.getGroupId());
@@ -362,48 +397,39 @@ public class ProjectGenerator {
 		}
 
 		List<BillOfMaterials> resolvedBoms = request.getBoms().values().stream()
-				.sorted(Comparator.comparing(BillOfMaterials::getOrder))
-				.collect(Collectors.toList());
+				.sorted(Comparator.comparing(BillOfMaterials::getOrder)).collect(Collectors.toList());
 		model.put("resolvedBoms", resolvedBoms);
 		ArrayList<BillOfMaterials> reversedBoms = new ArrayList<>(resolvedBoms);
 		Collections.reverse(reversedBoms);
 		model.put("reversedBoms", reversedBoms);
 
-		model.put("compileDependencies",
-				filterDependencies(dependencies, Dependency.SCOPE_COMPILE));
-		model.put("runtimeDependencies",
-				filterDependencies(dependencies, Dependency.SCOPE_RUNTIME));
-		model.put("compileOnlyDependencies",
-				filterDependencies(dependencies, Dependency.SCOPE_COMPILE_ONLY));
-		model.put("providedDependencies",
-				filterDependencies(dependencies, Dependency.SCOPE_PROVIDED));
-		model.put("testDependencies",
-				filterDependencies(dependencies, Dependency.SCOPE_TEST));
+		model.put("compileDependencies", filterDependencies(dependencies, Dependency.SCOPE_COMPILE));
+		model.put("runtimeDependencies", filterDependencies(dependencies, Dependency.SCOPE_RUNTIME));
+		model.put("compileOnlyDependencies", filterDependencies(dependencies, Dependency.SCOPE_COMPILE_ONLY));
+		model.put("providedDependencies", filterDependencies(dependencies, Dependency.SCOPE_PROVIDED));
+		model.put("testDependencies", filterDependencies(dependencies, Dependency.SCOPE_TEST));
 
 		request.getBoms().forEach((k, v) -> {
 			if (v.getVersionProperty() != null) {
-				request.getBuildProperties().getVersions().computeIfAbsent(
-						v.getVersionProperty(), key -> v::getVersion);
+				request.getBuildProperties().getVersions().computeIfAbsent(v.getVersionProperty(),
+						key -> v::getVersion);
 			}
 		});
 
 		Map<String, String> versions = new LinkedHashMap<>();
 		model.put("buildPropertiesVersions", versions.entrySet());
-		request.getBuildProperties().getVersions().forEach((k, v) ->
-				versions.put(k, v.get()));
+		request.getBuildProperties().getVersions().forEach((k, v) -> versions.put(k, v.get()));
 		Map<String, String> gradle = new LinkedHashMap<>();
 		model.put("buildPropertiesGradle", gradle.entrySet());
-		request.getBuildProperties().getGradle().forEach((k, v) ->
-				gradle.put(k, v.get()));
+		request.getBuildProperties().getGradle().forEach((k, v) -> gradle.put(k, v.get()));
 		Map<String, String> maven = new LinkedHashMap<>();
 		model.put("buildPropertiesMaven", maven.entrySet());
 		request.getBuildProperties().getMaven().forEach((k, v) -> maven.put(k, v.get()));
 
 		// Add various versions
-		model.put("dependencyManagementPluginVersion", metadata.getConfiguration()
-				.getEnv().getGradle().getDependencyManagementPluginVersion());
-		model.put("kotlinVersion",
-				metadata.getConfiguration().getEnv().getKotlin().getVersion());
+		model.put("dependencyManagementPluginVersion",
+				metadata.getConfiguration().getEnv().getGradle().getDependencyManagementPluginVersion());
+		model.put("kotlinVersion", metadata.getConfiguration().getEnv().getKotlin().getVersion());
 		if ("kotlin".equals(request.getLanguage())) {
 			model.put("kotlin", true);
 		}
@@ -413,21 +439,19 @@ public class ProjectGenerator {
 
 		model.put("isRelease", request.getBootVersion().contains("RELEASE"));
 		// @SpringBootApplication available as from 1.2.0.RC1
-		model.put("useSpringBootApplication", VERSION_1_2_0_RC1
-				.compareTo(Version.safeParse(request.getBootVersion())) <= 0);
+		model.put("useSpringBootApplication",
+				VERSION_1_2_0_RC1.compareTo(Version.safeParse(request.getBootVersion())) <= 0);
 
 		// Gradle plugin has changed as from 1.3.0
-		model.put("bootOneThreeAvailable", VERSION_1_3_0_M1
-				.compareTo(Version.safeParse(request.getBootVersion())) <= 0);
+		model.put("bootOneThreeAvailable",
+				VERSION_1_3_0_M1.compareTo(Version.safeParse(request.getBootVersion())) <= 0);
 
-		model.put("bootTwoZeroAvailable", VERSION_2_0_0_BUILD_SNAPSHOT
-				.compareTo(Version.safeParse(request.getBootVersion())) <= 0);
+		model.put("bootTwoZeroAvailable",
+				VERSION_2_0_0_BUILD_SNAPSHOT.compareTo(Version.safeParse(request.getBootVersion())) <= 0);
 
 		// Gradle plugin has changed again as from 1.4.2
-		model.put("springBootPluginName",
-				(VERSION_1_4_2_M1
-						.compareTo(Version.safeParse(request.getBootVersion())) <= 0
-						? "org.springframework.boot" : "spring-boot"));
+		model.put("springBootPluginName", (VERSION_1_4_2_M1.compareTo(Version.safeParse(request.getBootVersion())) <= 0
+				? "org.springframework.boot" : "spring-boot"));
 
 		// New testing stuff
 		model.put("newTestInfrastructure", isNewTestInfrastructureAvailable(request));
@@ -444,8 +468,7 @@ public class ProjectGenerator {
 		BeanWrapperImpl bean = new BeanWrapperImpl(request);
 		for (PropertyDescriptor descriptor : bean.getPropertyDescriptors()) {
 			if (bean.isReadableProperty(descriptor.getName())) {
-				model.put(descriptor.getName(),
-						bean.getPropertyValue(descriptor.getName()));
+				model.put(descriptor.getName(), bean.getPropertyValue(descriptor.getName()));
 			}
 		}
 		if (!request.getBoms().isEmpty()) {
@@ -461,24 +484,21 @@ public class ProjectGenerator {
 		boolean newTestInfrastructure = isNewTestInfrastructureAvailable(request);
 		if (newTestInfrastructure) {
 			imports += String.format(
-					generateImport("org.springframework.boot.test.context.SpringBootTest",
-							request.getLanguage()) + "%n");
+					generateImport("org.springframework.boot.test.context.SpringBootTest", request.getLanguage())
+							+ "%n");
 			imports += String.format(
-					generateImport("org.springframework.test.context.junit4.SpringRunner",
-							request.getLanguage()) + "%n");
-		}
-		else {
-			imports += String.format(generateImport(
-					"org.springframework.boot.test.SpringApplicationConfiguration",
+					generateImport("org.springframework.test.context.junit4.SpringRunner", request.getLanguage())
+							+ "%n");
+		} else {
+			imports += String.format(generateImport("org.springframework.boot.test.SpringApplicationConfiguration",
 					request.getLanguage()) + "%n");
-			imports += String.format(generateImport(
-					"org.springframework.test.context.junit4.SpringJUnit4ClassRunner",
+			imports += String.format(generateImport("org.springframework.test.context.junit4.SpringJUnit4ClassRunner",
 					request.getLanguage()) + "%n");
 		}
 		if (request.hasWebFacet() && !newTestInfrastructure) {
-			imports += String.format(generateImport(
-					"org.springframework.test.context.web.WebAppConfiguration",
-					request.getLanguage()) + "%n");
+			imports += String.format(
+					generateImport("org.springframework.test.context.web.WebAppConfiguration", request.getLanguage())
+							+ "%n");
 			testAnnotations = String.format("@WebAppConfiguration%n");
 		}
 		model.put("testImports", imports);
@@ -503,13 +523,11 @@ public class ProjectGenerator {
 	}
 
 	private static boolean isNewTestInfrastructureAvailable(ProjectRequest request) {
-		return VERSION_1_4_0_M2
-				.compareTo(Version.safeParse(request.getBootVersion())) <= 0;
+		return VERSION_1_4_0_M2.compareTo(Version.safeParse(request.getBootVersion())) <= 0;
 	}
 
 	private static boolean isNewServletInitializerAvailable(ProjectRequest request) {
-		return VERSION_1_4_0_M3
-				.compareTo(Version.safeParse(request.getBootVersion())) <= 0;
+		return VERSION_1_4_0_M3.compareTo(Version.safeParse(request.getBootVersion())) <= 0;
 	}
 
 	private static boolean isGradle3Available(Version bootVersion) {
@@ -537,8 +555,7 @@ public class ProjectGenerator {
 		wrapperDir.mkdirs();
 		writeTextResource(wrapperDir, "gradle-wrapper.properties",
 				gradlePrefix + "/gradle/wrapper/gradle-wrapper.properties");
-		writeBinaryResource(wrapperDir, "gradle-wrapper.jar",
-				gradlePrefix + "/gradle/wrapper/gradle-wrapper.jar");
+		writeBinaryResource(wrapperDir, "gradle-wrapper.jar", gradlePrefix + "/gradle/wrapper/gradle-wrapper.jar");
 	}
 
 	private void writeMavenWrapper(File dir) {
@@ -547,10 +564,8 @@ public class ProjectGenerator {
 
 		File wrapperDir = new File(dir, ".mvn/wrapper");
 		wrapperDir.mkdirs();
-		writeTextResource(wrapperDir, "maven-wrapper.properties",
-				"maven/wrapper/maven-wrapper.properties");
-		writeBinaryResource(wrapperDir, "maven-wrapper.jar",
-				"maven/wrapper/maven-wrapper.jar");
+		writeTextResource(wrapperDir, "maven-wrapper.properties", "maven/wrapper/maven-wrapper.properties");
+		writeBinaryResource(wrapperDir, "maven-wrapper.jar", "maven/wrapper/maven-wrapper.jar");
 	}
 
 	private File writeBinaryResource(File dir, String name, String location) {
@@ -561,16 +576,12 @@ public class ProjectGenerator {
 		return doWriteProjectResource(dir, name, location, false);
 	}
 
-	private File doWriteProjectResource(File dir, String name, String location,
-			boolean binary) {
+	private File doWriteProjectResource(File dir, String name, String location, boolean binary) {
 		File target = new File(dir, name);
 		if (binary) {
-			writeBinary(target, projectResourceLocator
-					.getBinaryResource("classpath:project/" + location));
-		}
-		else {
-			writeText(target, projectResourceLocator
-					.getTextResource("classpath:project/" + location));
+			writeBinary(target, projectResourceLocator.getBinaryResource("classpath:project/" + location));
+		} else {
+			writeText(target, projectResourceLocator.getTextResource("classpath:project/" + location));
 		}
 		return target;
 	}
@@ -580,8 +591,7 @@ public class ProjectGenerator {
 			File dir = new File(rootDir, request.getBaseDir());
 			dir.mkdirs();
 			return dir;
-		}
-		else {
+		} else {
 			return rootDir;
 		}
 	}
@@ -594,8 +604,7 @@ public class ProjectGenerator {
 	private void writeText(File target, String body) {
 		try (OutputStream stream = new FileOutputStream(target)) {
 			StreamUtils.copy(body, Charset.forName("UTF-8"), stream);
-		}
-		catch (Exception e) {
+		} catch (Exception e) {
 			throw new IllegalStateException("Cannot write file " + target, e);
 		}
 	}
@@ -603,8 +612,7 @@ public class ProjectGenerator {
 	private void writeBinary(File target, byte[] body) {
 		try (OutputStream stream = new FileOutputStream(target)) {
 			StreamUtils.copy(body, stream);
-		}
-		catch (Exception e) {
+		} catch (Exception e) {
 			throw new IllegalStateException("Cannot write file " + target, e);
 		}
 	}
@@ -613,11 +621,9 @@ public class ProjectGenerator {
 		temporaryFiles.computeIfAbsent(group, key -> new ArrayList<>()).add(file);
 	}
 
-	private static List<Dependency> filterDependencies(List<Dependency> dependencies,
-			String scope) {
+	private static List<Dependency> filterDependencies(List<Dependency> dependencies, String scope) {
 		return dependencies.stream().filter(dep -> scope.equals(dep.getScope()))
-				.sorted(Comparator.comparing(MetadataElement::getId))
-				.collect(Collectors.toList());
+				.sorted(Comparator.comparing(MetadataElement::getId)).collect(Collectors.toList());
 	}
 
 }

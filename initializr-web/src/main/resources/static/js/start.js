@@ -266,7 +266,28 @@ $(function () {
             e.returnValue = false;
         }
     });
-
+ // begin custom changes
+    $("#archetypes").on("change", function (e) {
+        // this could be a little smarter...
+        $("#starters div").remove();
+        $("#dependencies input").prop('checked', false);
+        var results = [];
+        switch ($(this).find(":selected").val()) {
+        case "REST":
+            results = starters.get(['web','actuator','cloud-hystrix','security', 'jasypt', 'cloud-starter-sleuth', 'devtools']);
+            break;
+        case "FOO":
+            results = starters.get(['thymeleaf', 'web', 'actuator', 'security', 'devtools']);
+            break;
+        case "BAR":
+            results = starters.get(['batch']);
+        }
+        for (var i = 0; i < results.length; i++) {
+            addTag(results[i].id, results[i].name);
+            $("#dependencies input[value='" + results[i].id + "']").prop('checked', true);
+        }
+    });
+    // end custom changes
     applyParams();
     if ("onhashchange" in window) {
         window.onhashchange = function() {

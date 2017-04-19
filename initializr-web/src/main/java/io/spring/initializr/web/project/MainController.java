@@ -16,6 +16,10 @@
 
 package io.spring.initializr.web.project;
 
+import static io.spring.initializr.util.Agent.AgentId.CURL;
+import static io.spring.initializr.util.Agent.AgentId.HTTPIE;
+import static io.spring.initializr.util.Agent.AgentId.SPRING_BOOT_CLI;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -25,7 +29,30 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.tools.ant.Project;
+import org.apache.tools.ant.taskdefs.Tar;
+import org.apache.tools.ant.taskdefs.Zip;
+import org.apache.tools.ant.types.TarFileSet;
+import org.apache.tools.ant.types.ZipFileSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.ResponseEntity.BodyBuilder;
+import org.springframework.stereotype.Controller;
+import org.springframework.util.DigestUtils;
+import org.springframework.util.StreamUtils;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.servlet.resource.ResourceUrlProvider;
+
 import com.samskivert.mustache.Mustache;
+
 import io.spring.initializr.generator.BasicProjectRequest;
 import io.spring.initializr.generator.CommandLineHelpGenerator;
 import io.spring.initializr.generator.ProjectGenerator;
@@ -42,32 +69,6 @@ import io.spring.initializr.web.mapper.InitializrMetadataJsonMapper;
 import io.spring.initializr.web.mapper.InitializrMetadataV21JsonMapper;
 import io.spring.initializr.web.mapper.InitializrMetadataV2JsonMapper;
 import io.spring.initializr.web.mapper.InitializrMetadataVersion;
-import org.apache.tools.ant.Project;
-import org.apache.tools.ant.taskdefs.Tar;
-import org.apache.tools.ant.taskdefs.Zip;
-import org.apache.tools.ant.types.TarFileSet;
-import org.apache.tools.ant.types.ZipFileSet;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import org.springframework.http.CacheControl;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
-import org.springframework.http.ResponseEntity.BodyBuilder;
-import org.springframework.stereotype.Controller;
-import org.springframework.util.DigestUtils;
-import org.springframework.util.StreamUtils;
-import org.springframework.web.bind.annotation.ModelAttribute;
-import org.springframework.web.bind.annotation.RequestHeader;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseBody;
-import org.springframework.web.servlet.resource.ResourceUrlProvider;
-
-import static io.spring.initializr.util.Agent.AgentId.CURL;
-import static io.spring.initializr.util.Agent.AgentId.HTTPIE;
-import static io.spring.initializr.util.Agent.AgentId.SPRING_BOOT_CLI;
 
 /**
  * The main initializr controller provides access to the configured metadata and serves as
@@ -261,6 +262,7 @@ public class MainController extends AbstractInitializrController {
 		File download = projectGenerator.createDistributionFile(dir, ".zip");
 
 		String wrapperScript = getWrapperScript(request);
+		
 		new File(dir, wrapperScript).setExecutable(true);
 		Zip zip = new Zip();
 		zip.setProject(new Project());
@@ -271,6 +273,15 @@ public class MainController extends AbstractInitializrController {
 		set.setIncludes(wrapperScript);
 		set.setDefaultexcludes(false);
 		zip.addFileset(set);
+		//new Entry for GitIgnore
+		ZipFileSet set1 = new ZipFileSet();
+		set1.setDir(dir);
+		set1.setFileMode("755");
+		set1.setIncludes("**");
+		set1.setExcludes(wrapperScript);
+		set1.setDefaultexcludes(false);
+		zip.addFileset(set1);
+		//end of method 
 		set = new ZipFileSet();
 		set.setDir(dir);
 		set.setIncludes("**,");
